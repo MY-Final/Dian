@@ -114,8 +114,8 @@ export class PluginLoader {
       }
       const ctx: PluginSetupContext = {
         dian: this._runtimeView,
-        route(method, path, handler) {
-          routes.push({ method, path, handler });
+        route(method, path, handler, options) {
+          routes.push({ method, path, handler, public: options?.public === true });
         },
         command(entry) {
           commands.push(entry);

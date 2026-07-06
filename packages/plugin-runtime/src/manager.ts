@@ -63,14 +63,14 @@ export class PluginManager {
   private async _loadFile(filePath: string): Promise<void> {
     const instance = await this._loader.loadFile(filePath);
     if (instance) {
-      this._registerInstance(instance);
+      await this._registerInstance(instance);
     }
   }
 
-  private _registerInstance(instance: PluginInstance): void {
+  private async _registerInstance(instance: PluginInstance): Promise<void> {
     try {
       if (this._registry.has(instance.meta.name)) {
-        this.unload(instance.meta.name);
+        await this.unload(instance.meta.name);
       }
       this._commands.registerPlugin(instance);
       this._registry.set(instance.meta.name, instance);
@@ -115,7 +115,7 @@ export class PluginManager {
   }
 
   /** 卸载 filePath 位于指定目录下的所有已加载插件。返回被卸载的插件名列表。 */
-  unloadByDir(dir: string): string[] {
+  async unloadByDir(dir: string): Promise<string[]> {
     const normalizedDir = resolve(dir);
     const names: string[] = [];
     for (const [name, plugin] of this._registry.entries()) {
@@ -124,20 +124,22 @@ export class PluginManager {
         names.push(name);
       }
     }
-    for (const name of names) this.unload(name);
+    for (const name of names) {
+      await this.unload(name);
+    }
     return names;
   }
 
   // ── 卸载 / 热重载 ─────────────────────────────────────────────────────────
 
-  unload(name: string): void {
+  async unload(name: string): Promise<void> {
     const plugin = this._registry.get(name);
     if (!plugin) return;
     // 调用插件实例的 onStop 生命周期钩子（如有），清理定时器等资源
     if (typeof (plugin.instance as Record<string, unknown>)["onStop"] === "function") {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (plugin.instance as any).onStop();
+        await (plugin.instance as any).onStop();
       } catch (err) {
         console.error(`[plugin-runtime] 插件 "${name}" onStop 异常:`, err);
       }
@@ -158,8 +160,8 @@ export class PluginManager {
       console.warn(`[plugin-runtime] 插件 "${name}" reload 失败，已保留旧实例`);
       return;
     }
-    this.unload(name);
-    this._registerInstance(next);
+    await this.unload(name);
+    await this._registerInstance(next);
   }
 
   // ── 文件监听热重载 ────────────────────────────────────────────────────────
@@ -182,7 +184,7 @@ export class PluginManager {
       onUnlink: (filePath) => {
         const existing = this._registry.findByFilePath(filePath);
         if (existing) {
-          this.unload(existing.meta.name);
+          this.unload(existing.meta.name).catch(console.error);
         }
       },
     });
@@ -285,7 +287,7 @@ export class PluginManager {
           category: c.category,
           children: c.children.map(commandNodeToPublicMeta),
       })),
-      routes: p.routes.map((r) => ({ method: r.method, path: r.path })),
+      routes: p.routes.map((r) => ({ method: r.method, path: r.path, public: r.public === true })),
       hasUI: p.ui !== null,
       uiUrl: p.ui?.externalUrl
         ? p.ui.externalUrl

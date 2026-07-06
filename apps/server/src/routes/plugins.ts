@@ -8,6 +8,10 @@ import type { LogService } from "@myfinal/logger";
 import type { SqlitePluginStore } from "@myfinal/storage";
 import { proxyFetch } from "../utils/proxy-fetch.js";
 
+const MAX_ZIP_FILES = 500;
+const MAX_UNZIPPED_BYTES = 100 * 1024 * 1024;
+const MAX_ZIP_PATH_DEPTH = 20;
+
 // 静态资源 MIME 类型表（够用即可，无需引入 mime 库）
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -106,7 +110,7 @@ export async function pluginRoutes(
       const loadedFilePath = loadedPlugin?.filePath;
 
       // 从内存卸载
-      pluginManager.unload(name);
+      await pluginManager.unload(name);
       // 同步清掉黑名单状态，避免重装后仍处于禁用
       pluginManager.removeFromBlacklist(name);
 
@@ -198,9 +202,9 @@ export async function pluginRoutes(
 
       // 覆盖安装：卸载旧插件 + 清理旧文件
       if (alreadyExists) {
-        pluginManager.unloadByDir(destDir);
+        await pluginManager.unloadByDir(destDir);
         // 也按名称卸载（目录名和 meta.name 可能不同）
-        pluginManager.unload(name);
+        await pluginManager.unload(name);
         if (existsSync(destDir)) {
           await rm(destDir, { recursive: true, force: true });
         }
@@ -213,23 +217,7 @@ export async function pluginRoutes(
       await mkdir(destDir, { recursive: true });
 
       // 使用 fflate 解压 ZIP（纯 JS，跨平台无需 PowerShell）
-      await new Promise<void>((res, rej) => {
-        unzip(new Uint8Array(body), async (err, files) => {
-          if (err) { rej(err); return; }
-          try {
-            for (const [filePath, data] of Object.entries(files)) {
-              // 跳过目录条目（fflate 中目录条目 data 长度为 0 且路径以 / 结尾）
-              if (filePath.endsWith("/")) continue;
-              const dest = join(destDir, filePath);
-              await mkdir(dirname(dest), { recursive: true });
-              await writeFile(dest, data);
-            }
-            res();
-          } catch (writeErr) {
-            rej(writeErr);
-          }
-        });
-      });
+      await extractPluginZip(new Uint8Array(body), destDir);
 
       // 自动加载新插件到内存
       const indexFile = join(destDir, "index.js");
@@ -298,8 +286,8 @@ export async function pluginRoutes(
 
       // 覆盖安装：卸载旧插件 + 清理旧文件
       if (alreadyExists) {
-        pluginManager.unloadByDir(destDir);
-        pluginManager.unload(urlName);
+        await pluginManager.unloadByDir(destDir);
+        await pluginManager.unload(urlName);
         if (existsSync(destDir)) {
           await rm(destDir, { recursive: true, force: true });
         }
@@ -311,22 +299,7 @@ export async function pluginRoutes(
 
       await mkdir(destDir, { recursive: true });
 
-      await new Promise<void>((res, rej) => {
-        unzip(zipData, async (err, files) => {
-          if (err) { rej(err); return; }
-          try {
-            for (const [filePath, data] of Object.entries(files)) {
-              if (filePath.endsWith("/")) continue;
-              const dest = join(destDir, filePath);
-              await mkdir(dirname(dest), { recursive: true });
-              await writeFile(dest, data);
-            }
-            res();
-          } catch (writeErr) {
-            rej(writeErr);
-          }
-        });
-      });
+      await extractPluginZip(zipData, destDir);
 
       // 自动加载新插件到内存
       const indexFile = join(destDir, "index.js");
@@ -433,6 +406,72 @@ export async function pluginRoutes(
       `Plugin ready: ${plugin.meta.name} (routes=${plugin.routes.length}, ui=${plugin.ui ? "yes" : "no"})`
     );
   }
+}
+
+async function extractPluginZip(zipData: Uint8Array, destDir: string): Promise<void> {
+  await new Promise<void>((res, rej) => {
+    unzip(zipData, async (err, files) => {
+      if (err) { rej(err); return; }
+      try {
+        const entries = validateZipEntries(files, destDir);
+        for (const { dest, data } of entries) {
+          await mkdir(dirname(dest), { recursive: true });
+          await writeFile(dest, data);
+        }
+        res();
+      } catch (writeErr) {
+        rej(writeErr);
+      }
+    });
+  });
+}
+
+function validateZipEntries(files: Record<string, Uint8Array>, destDir: string): Array<{ dest: string; data: Uint8Array }> {
+  const root = resolve(destDir);
+  const normalizedRoot = normalizePathForCompare(root);
+  const entries: Array<{ dest: string; data: Uint8Array }> = [];
+  let totalBytes = 0;
+
+  for (const [filePath, data] of Object.entries(files)) {
+    if (filePath.endsWith("/")) continue;
+
+    if (filePath.includes("\0") || filePath.includes("\\")) {
+      throw new Error(`invalid zip entry path: ${filePath}`);
+    }
+
+    const parts = filePath.split("/").filter(Boolean);
+    if (
+      parts.length === 0 ||
+      parts.length > MAX_ZIP_PATH_DEPTH ||
+      parts.some((part) => part === "." || part === ".." || /^[a-zA-Z]:$/.test(part)) ||
+      filePath.startsWith("/")
+    ) {
+      throw new Error(`invalid zip entry path: ${filePath}`);
+    }
+
+    totalBytes += data.byteLength;
+    if (entries.length >= MAX_ZIP_FILES) {
+      throw new Error(`zip contains too many files (max ${MAX_ZIP_FILES})`);
+    }
+    if (totalBytes > MAX_UNZIPPED_BYTES) {
+      throw new Error(`zip uncompressed size exceeds ${MAX_UNZIPPED_BYTES} bytes`);
+    }
+
+    const dest = resolve(root, ...parts);
+    const normalizedDest = normalizePathForCompare(dest);
+    if (normalizedDest !== normalizedRoot && !normalizedDest.startsWith(`${normalizedRoot}/`)) {
+      throw new Error(`zip entry escapes plugin directory: ${filePath}`);
+    }
+
+    entries.push({ dest, data });
+  }
+
+  return entries;
+}
+
+function normalizePathForCompare(path: string): string {
+  const normalized = normalize(path).replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 /**

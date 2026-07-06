@@ -12,6 +12,7 @@ import { BotInstance } from "./bot-instance.js";
 export class BotService {
   private instance: BotInstance | null = null;
   private readonly log: ReturnType<LogService["child"]>;
+  private lifecycleQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly config: ConfigService,
@@ -22,12 +23,20 @@ export class BotService {
   }
 
   async start(): Promise<void> {
+    return this._enqueueLifecycle(() => this._start());
+  }
+
+  private async _start(): Promise<void> {
     const entry = this.config.bot;
     const enabled = entry.enabled !== false;
 
     if (!enabled) {
       this.log.info(`Bot "${entry.botId}" is disabled, skipping start`);
       return;
+    }
+
+    if (this.instance) {
+      await this._stop();
     }
 
     this.log.info(`Starting bot "${entry.botId}"...`);
@@ -73,18 +82,31 @@ export class BotService {
   }
 
   async stop(): Promise<void> {
+    return this._enqueueLifecycle(() => this._stop());
+  }
+
+  private async _stop(): Promise<void> {
     this.log.info("Stopping bot...");
     if (this.instance) {
-      await this.instance.stop();
+      const instance = this.instance;
       this.instance = null;
+      await instance.stop();
     }
     this.log.info("Bot stopped");
   }
 
   async reloadConfig(): Promise<void> {
-    this.log.info("Reloading bot config...");
-    await this.stop();
-    await this.start();
+    return this._enqueueLifecycle(async () => {
+      this.log.info("Reloading bot config...");
+      await this._stop();
+      await this._start();
+    });
+  }
+
+  private _enqueueLifecycle(work: () => Promise<void>): Promise<void> {
+    const run = this.lifecycleQueue.then(work, work);
+    this.lifecycleQueue = run.catch(() => undefined);
+    return run;
   }
 
   getBot(): BotInstance | undefined {

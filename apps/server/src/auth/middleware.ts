@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { AuthService } from "./service.js";
+import { pluginManager } from "@myfinal/plugin-runtime";
 
 /** 不需要认证的路由白名单（精确前缀匹配） */
 const PUBLIC_PREFIXES = [
@@ -9,12 +10,7 @@ const PUBLIC_PREFIXES = [
   "/status",
 ];
 
-const PUBLIC_PLUGIN_API_PATHS = [
-  /^\/plugins\/[^/]+\/ui(?:\/|$)/,     // 插件静态 UI
-  /^\/plugins\/[^/]+\/api(?:\/|$)/,    // 插件 API（iframe 内无法携带主站 token）
-];
-
-function isPublicPath(url: string): boolean {
+function isPublicPath(url: string, method: string): boolean {
   // 从完整 URL 或路径中提取纯路径部分（去掉 scheme/host/query）
   let path: string;
   try {
@@ -26,8 +22,37 @@ function isPublicPath(url: string): boolean {
   // 去掉查询参数（兼容 ?token=xxx 的情况）
   path = path.split("?")[0];
   if (/^\/plugins\/[^/]+\/ui(?:\/|$)/.test(path)) return true;
-  if (PUBLIC_PLUGIN_API_PATHS.some((pattern) => pattern.test(path))) return true;
+  if (isPublicPluginApiPath(path, method)) return true;
   return PUBLIC_PREFIXES.some((p) => path.startsWith(p));
+}
+
+function isPublicPluginApiPath(path: string, method: string): boolean {
+  const match = path.match(/^\/plugins\/([^/]+)\/api(?:\/(.*))?$/);
+  if (!match) return false;
+
+  let pluginName: string;
+  try {
+    pluginName = decodeURIComponent(match[1]);
+  } catch {
+    return false;
+  }
+
+  const plugin = pluginManager.plugins.find((p) => p.meta.name === pluginName);
+  if (!plugin) return false;
+
+  const subPath = `/${match[2] ?? ""}`.replace(/\/+$/, "") || "/";
+  return plugin.routes.some((route) =>
+    route.public === true &&
+    route.method === method &&
+    (route.path === subPath || route.path === `${subPath}/` || `${route.path}/` === subPath || matchPluginRoute(route.path, subPath))
+  );
+}
+
+function matchPluginRoute(routePath: string, actualPath: string): boolean {
+  const routeParts = routePath.split("/").filter(Boolean);
+  const actualParts = actualPath.split("/").filter(Boolean);
+  if (routeParts.length !== actualParts.length) return false;
+  return routeParts.every((part, index) => part.startsWith(":") || part === actualParts[index]);
 }
 
 /**
@@ -37,7 +62,7 @@ function isPublicPath(url: string): boolean {
 export function createAuthMiddleware(authService: AuthService) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     // 白名单路由跳过认证
-    if (isPublicPath(request.url)) return;
+    if (isPublicPath(request.url, request.method)) return;
 
     // 未配置密码时跳过认证（首次部署未设置密码）
     if (!authService.isConfigured()) return;

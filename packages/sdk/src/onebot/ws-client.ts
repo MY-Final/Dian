@@ -3,6 +3,9 @@ import type { BotEvent, OneBotRawEvent } from "@myfinal/shared";
 import { mapOneBotEvent } from "@myfinal/shared";
 import type { OneBotWsConfig } from "./types.js";
 
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+const DEFAULT_CLOSE_TIMEOUT_MS = 5_000;
+
 /** WS 客户端的连接状态 */
 export type WsState = "idle" | "connecting" | "connected" | "reconnecting" | "closed";
 
@@ -30,6 +33,7 @@ export class OneBotWsClient {
   private state: WsState = "idle";
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectPromise: Promise<void> | null = null;
   /** 是否主动关闭（主动关闭时不再重连） */
   private manualClose = false;
   private handler?: OneBotEventHandler;
@@ -65,10 +69,19 @@ export class OneBotWsClient {
    * 若已连接则直接返回
    */
   async connect(): Promise<void> {
-    if (this.state === "connected" || this.state === "connecting") return;
+    if (this.state === "connected") return;
+    if (this.state === "connecting") return this.connectPromise ?? Promise.resolve();
 
     this.manualClose = false;
-    return this._doConnect();
+    const promise = this._doConnect();
+    this.connectPromise = promise;
+    try {
+      await promise;
+    } finally {
+      if (this.connectPromise === promise) {
+        this.connectPromise = null;
+      }
+    }
   }
 
   /**
@@ -77,8 +90,40 @@ export class OneBotWsClient {
   async close(): Promise<void> {
     this.manualClose = true;
     this._clearTimers();
-    this.ws?.close();
+
+    const ws = this.ws;
     this.ws = null;
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      this.state = "closed";
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        ws.terminate();
+        resolve();
+      }, DEFAULT_CLOSE_TIMEOUT_MS);
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+
+      ws.once("close", finish);
+      ws.once("error", finish);
+
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      } else {
+        ws.terminate();
+      }
+    });
+
     this.state = "closed";
   }
 
@@ -103,15 +148,31 @@ export class OneBotWsClient {
       const ws = new WebSocket(this.config.url, { headers });
       this.ws = ws;
 
+      let settled = false;
+      const connectTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        ws.terminate();
+        reject(new Error(`WebSocket connect timeout after ${this.config.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS}ms`));
+      }, this.config.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS);
+
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(connectTimeout);
+        fn();
+      };
+
       ws.once("open", () => {
-        this.state = "connected";
-        this._startHeartbeat();
-        resolve();
+        settle(() => {
+          this.state = "connected";
+          this._startHeartbeat();
+          resolve();
+        });
       });
 
       ws.once("error", (err) => {
-        // 首次连接失败时 reject，重连时忽略（由 close 事件统一处理重连）
-        if (this.state === "connecting") reject(err);
+        settle(() => reject(err));
       });
 
       ws.on("message", (data) => {
@@ -119,7 +180,11 @@ export class OneBotWsClient {
       });
 
       ws.once("close", (code, reason) => {
+        clearTimeout(connectTimeout);
         this._stopHeartbeat();
+        settle(() => reject(new Error(`WebSocket closed before open code=${code} reason=${reason.toString()}`)));
+        if (this.ws !== ws) return;
+        this.ws = null;
         this.state = "idle";
 
         if (!this.manualClose) {

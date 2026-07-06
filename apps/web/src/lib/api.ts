@@ -63,6 +63,7 @@ export interface BotWsConfigInput {
   accessToken?: string
   heartbeatIntervalMs?: number
   reconnectIntervalMs?: number
+  connectTimeoutMs?: number
 }
 
 export interface BotHttpConfigInput {
@@ -243,7 +244,7 @@ export interface PluginPublicMeta {
   commandCount: number
   handlers: PluginHandlerMeta[]
   commands: PluginCommandMeta[]
-  routes: { method: string; path: string }[]
+  routes: { method: string; path: string; public?: boolean }[]
   hasUI: boolean
   uiUrl: string | null
 }

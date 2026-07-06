@@ -53,6 +53,13 @@ export interface RouteEntry {
   /** 路径，相对于 /plugins/:name/api，如 '/status' */
   path: string;
   handler: RouteHandler;
+  /** 是否允许未登录访问。默认 false，需要主站 token。 */
+  public?: boolean;
+}
+
+export interface RouteOptions {
+  /** 是否允许未登录访问。默认 false，需要主站 token。 */
+  public?: boolean;
 }
 
 /**
@@ -197,7 +204,7 @@ export interface PluginSetupContext {
   /** 框架只读运行时视图，用于 help 等插件读取插件/指令快照 */
   dian: DianRuntimeView;
   /** 注册 HTTP API 路由，路径自动带 /plugins/:name/api 前缀 */
-  route(method: HttpMethod, path: string, handler: RouteHandler): void;
+  route(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void;
   /** 注册指令（等同于命令式版本的 @Handler） */
   command(entry: CommandEntry): void;
   /** 声明插件 Web UI */
