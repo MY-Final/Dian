@@ -26,6 +26,11 @@ export interface OneBotWsConfig {
    * @default 5000
    */
   reconnectIntervalMs?: number;
+  /**
+   * WS 连接握手超时（ms）
+   * @default 10000
+   */
+  connectTimeoutMs?: number;
 }
 
 /**

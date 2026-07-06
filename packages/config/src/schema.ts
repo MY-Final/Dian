@@ -52,6 +52,8 @@ export const OneBotWsConfigSchema = z.object({
   heartbeatIntervalMs: z.number().int().positive().default(30000),
   /** 断线重连间隔（ms），默认 5000 */
   reconnectIntervalMs: z.number().int().positive().default(5000),
+  /** WS 连接握手超时（ms），默认 10000 */
+  connectTimeoutMs: z.number().int().positive().default(10000),
 });
 
 export const OneBotHttpConfigSchema = z.object({

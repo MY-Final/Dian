@@ -37,6 +37,7 @@ const DEFAULT_BOT: BotConfig = {
       accessToken: "",
       heartbeatIntervalMs: 30000,
       reconnectIntervalMs: 5000,
+      connectTimeoutMs: 10000,
     },
     http: {
       baseUrl: "http://127.0.0.1:5700/",
