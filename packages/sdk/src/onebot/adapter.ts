@@ -142,6 +142,10 @@ export class OneBotAdapter {
     return this.wsClient?.connectionState;
   }
 
+  get canSendAction(): boolean {
+    return this.httpClient !== null;
+  }
+
   // ---------------------------------------------------------------------------
   // 内部工具
   // ---------------------------------------------------------------------------

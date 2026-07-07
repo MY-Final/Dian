@@ -28,7 +28,7 @@ export class SqliteLogRepository implements LogRepository {
         level      TEXT    NOT NULL,
         message    TEXT    NOT NULL,
         meta       TEXT,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
       );
       CREATE INDEX IF NOT EXISTS idx_logs_bot_id    ON logs(bot_id);
       CREATE INDEX IF NOT EXISTS idx_logs_level     ON logs(level);
@@ -103,7 +103,7 @@ export class SqliteLogRepository implements LogRepository {
   async cleanup(retentionDays: number): Promise<void> {
     this.db
       .prepare(
-        `DELETE FROM logs WHERE created_at < datetime('now', @offset)`,
+        `DELETE FROM logs WHERE created_at < datetime('now', 'localtime', @offset)`,
       )
       .run({ offset: `-${retentionDays} days` });
   }

@@ -11,6 +11,13 @@ import { proxyFetch } from "../utils/proxy-fetch.js";
 const MAX_ZIP_FILES = 500;
 const MAX_UNZIPPED_BYTES = 100 * 1024 * 1024;
 const MAX_ZIP_PATH_DEPTH = 20;
+const ALLOWED_PLUGIN_DOWNLOAD_HOSTS = new Set([
+  "github.com",
+  "api.github.com",
+  "raw.githubusercontent.com",
+  "objects.githubusercontent.com",
+  "codeload.github.com",
+]);
 
 // 静态资源 MIME 类型表（够用即可，无需引入 mime 库）
 const MIME_TYPES: Record<string, string> = {
@@ -243,8 +250,12 @@ export async function pluginRoutes(
   }>("/plugins/install-from-url", async (req, reply) => {
     const { url, force: rawForce } = (req.body ?? {}) as { url?: unknown; force?: unknown };
     const force = rawForce === true || rawForce === "true";
-    if (typeof url !== "string" || !url.startsWith("http")) {
-      return reply.code(400).send({ error: "url must be a valid http/https string" });
+    if (typeof url !== "string") {
+      return reply.code(400).send({ error: "url must be a valid https string" });
+    }
+    const urlCheck = validatePluginDownloadUrl(url);
+    if (!urlCheck.ok) {
+      return reply.code(400).send({ error: urlCheck.error });
     }
 
     // 从 URL 中提取插件名（取最后一段路径，去掉 .zip）
@@ -467,6 +478,26 @@ function validateZipEntries(files: Record<string, Uint8Array>, destDir: string):
   }
 
   return entries;
+}
+
+function validatePluginDownloadUrl(rawUrl: string): { ok: true } | { ok: false; error: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, error: "url must be a valid https URL" };
+  }
+
+  if (parsed.protocol !== "https:") {
+    return { ok: false, error: "only https plugin download URLs are allowed" };
+  }
+  if (!ALLOWED_PLUGIN_DOWNLOAD_HOSTS.has(parsed.hostname.toLowerCase())) {
+    return { ok: false, error: "plugin download host is not allowed" };
+  }
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: "plugin download URL must not include credentials" };
+  }
+  return { ok: true };
 }
 
 function normalizePathForCompare(path: string): string {

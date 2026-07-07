@@ -70,6 +70,14 @@ function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })
 }
 
+function localDateKey(ms: number): string {
+  const date = new Date(ms)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
 /** 显示名：优先群名，否则原 ID */
 function groupLabel(id: string, names: GroupNameMap): string {
   return names[id] ?? id
@@ -212,7 +220,7 @@ export function AnalyticsPage() {
     const now = Date.now()
     const filled: TrendPoint[] = []
     for (let i = rangeDays - 1; i >= 0; i--) {
-      const d = new Date(now - i * 86400_000).toISOString().slice(0, 10)
+      const d = localDateKey(now - i * 86400_000)
       filled.push({ date: d, count: map.get(d) ?? 0 })
     }
     return filled

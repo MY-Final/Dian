@@ -74,8 +74,10 @@ export class PluginManager {
       }
       this._commands.registerPlugin(instance);
       this._registry.set(instance.meta.name, instance);
+      await this._loader.notifyPluginLoaded(instance);
     } catch (err) {
       this._commands.unregisterPlugin(instance.meta.name);
+      this._registry.delete(instance.meta.name);
       console.error(`[plugin-runtime] 插件 "${instance.meta.name}" 指令注册失败:`, err);
     }
   }

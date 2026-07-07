@@ -33,7 +33,7 @@ export class SqlitePluginStore {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       plugin_name TEXT NOT NULL,
       table_name TEXT NOT NULL UNIQUE,
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
     )`);
     // 为 plugin_name 创建索引，加速查询
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_plugin_tables_plugin_name ON _plugin_tables(plugin_name)`);
@@ -55,7 +55,7 @@ export class SqlitePluginStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS "${tableName}" (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ${columnsDef},
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
     )`);
 
     // 记录插件和表的关联关系

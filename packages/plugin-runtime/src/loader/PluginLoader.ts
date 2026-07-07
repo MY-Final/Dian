@@ -31,6 +31,11 @@ export class PluginLoader {
     this._onPluginLoaded = fn;
   }
 
+  async notifyPluginLoaded(plugin: PluginInstance): Promise<void> {
+    if (!this._onPluginLoaded) return;
+    await this._onPluginLoaded(plugin);
+  }
+
   setRuntimeView(view: DianRuntimeView): void {
     this._runtimeView = view;
   }
@@ -132,6 +137,7 @@ export class PluginLoader {
         await (instance as any).onSetup(ctx);
       } catch (err) {
         console.error(`[plugin-runtime] 插件 "${meta.name}" onSetup 异常:`, err);
+        return null;
       }
     }
 
@@ -148,14 +154,6 @@ export class PluginLoader {
     };
 
     console.info(`[plugin-runtime] 插件 "${meta.name}" 已加载`);
-
-    if (this._onPluginLoaded) {
-      try {
-        await this._onPluginLoaded(pluginInstance);
-      } catch (err) {
-        console.error(`[plugin-runtime] onPluginLoaded hook for "${meta.name}" 异常:`, err);
-      }
-    }
 
     return pluginInstance;
   }

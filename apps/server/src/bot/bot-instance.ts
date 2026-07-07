@@ -51,6 +51,10 @@ export class BotInstance {
     return this.adapter.wsState ?? "no-ws";
   }
 
+  get canSendAction(): boolean {
+    return this.adapter.canSendAction;
+  }
+
   async stop(): Promise<void> {
     this.log.info("Stopping bot...");
     await this.adapter.stop();

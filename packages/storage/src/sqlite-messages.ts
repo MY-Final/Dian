@@ -38,7 +38,7 @@ export class SqliteMessageRepository implements MessageRepository {
         message_id  TEXT,
         text        TEXT,
         timestamp   INTEGER NOT NULL,
-        created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+        created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
       );
       CREATE INDEX IF NOT EXISTS idx_msg_bot_id    ON messages(bot_id);
       CREATE INDEX IF NOT EXISTS idx_msg_group_id  ON messages(group_id);
@@ -175,7 +175,7 @@ export class SqliteMessageRepository implements MessageRepository {
 
     return this.db
       .prepare(
-        `SELECT strftime('%Y-%m-%d', datetime(timestamp, 'unixepoch')) as date,
+        `SELECT strftime('%Y-%m-%d', datetime(timestamp, 'unixepoch', 'localtime')) as date,
                 COUNT(*) as count
          FROM messages ${where}
          GROUP BY date ORDER BY date ASC`

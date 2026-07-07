@@ -156,7 +156,7 @@ async function main(): Promise<void> {
   // ── 6. 后台加载插件 ───────────────────────────────────────────────────────
   // 不阻塞 HTTP 启动；慢插件初始化失败或下载依赖时，控制台仍可访问。
   logger.info(`Loading plugins from ${PLUGINS_DIR}`);
-  void pluginManager.loadAll(PLUGINS_DIR)
+  const pluginsReady = pluginManager.loadAll(PLUGINS_DIR)
     .then(() => {
       pluginManager.watch(); // 监听新安装的插件文件，自动热加载
     })
@@ -165,6 +165,7 @@ async function main(): Promise<void> {
     });
 
   // ── 7. 启动 Bot ───────────────────────────────────────────────────────────
+  await pluginsReady;
   await botService.start();
 
   // ── 8. 热重载配置变更 ────────────────────────────────────────────────────
@@ -177,8 +178,12 @@ async function main(): Promise<void> {
   // ── 9. 优雅退出 ──────────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down...`);
-    configService.unwatch();
+    await configService.unwatch();
     await botService.stop();
+    await pluginManager.unwatch();
+    for (const plugin of [...pluginManager.plugins]) {
+      await pluginManager.unload(plugin.meta.name);
+    }
     await server.stop();
     dbExplorer.close();
     await storageService.close();

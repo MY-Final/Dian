@@ -110,6 +110,7 @@ export class BotService {
   }
 
   getBot(): BotInstance | undefined {
+    if (this.instance && !this.instance.canSendAction) return undefined;
     return this.instance ?? undefined;
   }
 }
