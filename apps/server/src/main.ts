@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── 3. 加载插件 ───────────────────────────────────────────────────────────
+  // ── 3. 准备插件运行依赖 ───────────────────────────────────────────────────
   // 数据库浏览器必须在插件加载前创建，以便框架在 onPluginLoaded hook 中统一注册数据源
   const dbExplorer = new DatabaseExplorer(logger);
   if (configService.settings.storage?.sqlite) {
@@ -67,11 +67,6 @@ async function main(): Promise<void> {
       logger.info(`Plugin datasource registered: ${ds.name} -> ${ds.file}`);
     }
   });
-
-  logger.info(`Loading plugins from ${PLUGINS_DIR}`);
-  await pluginManager.loadAll(PLUGINS_DIR);
-  pluginManager.watch(); // 监听新安装的插件文件，自动热加载
-
   // ── 4a. 事件总线 + 分发器 & BotService ────────────────────────────────────
   const eventBus = new EventBus(200);
   const dispatcher = new EventDispatcher(logger);
@@ -158,17 +153,28 @@ async function main(): Promise<void> {
   });
   await server.start();
 
-  // ── 6. 启动 Bot ───────────────────────────────────────────────────────────
+  // ── 6. 后台加载插件 ───────────────────────────────────────────────────────
+  // 不阻塞 HTTP 启动；慢插件初始化失败或下载依赖时，控制台仍可访问。
+  logger.info(`Loading plugins from ${PLUGINS_DIR}`);
+  void pluginManager.loadAll(PLUGINS_DIR)
+    .then(() => {
+      pluginManager.watch(); // 监听新安装的插件文件，自动热加载
+    })
+    .catch((err) => {
+      logger.error("Failed to load plugins", { err });
+    });
+
+  // ── 7. 启动 Bot ───────────────────────────────────────────────────────────
   await botService.start();
 
-  // ── 7. 热重载配置变更 ────────────────────────────────────────────────────
+  // ── 8. 热重载配置变更 ────────────────────────────────────────────────────
   configService.watch();
   configService.on("change", async ({ file }) => {
     logger.info(`Config changed: ${file}, reloading bot...`);
     await botService.reloadConfig();
   });
 
-  // ── 8. 优雅退出 ──────────────────────────────────────────────────────────
+  // ── 9. 优雅退出 ──────────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down...`);
     configService.unwatch();

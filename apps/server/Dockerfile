@@ -35,14 +35,18 @@ FROM node:22-slim AS runtime
 
 WORKDIR /app
 
+ENV TZ=Asia/Shanghai
+
 # Chrome/Puppeteer 运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates fonts-liberation fonts-noto-cjk fonts-wqy-zenhei \
+    ca-certificates tzdata fonts-liberation fonts-noto-cjk fonts-wqy-zenhei \
     libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 \
     libc6 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 \
     libgbm1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
     libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 \
     libxkbcommon0 libxrandr2 wget xdg-utils unzip \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # 直接从 builder 复制已编译的 node_modules（含原生二进制），无需重装编译工具
